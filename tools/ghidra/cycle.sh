@@ -6,42 +6,42 @@
 # it were fresh, and that failure is silent: every check passes, because the stale build is
 # internally consistent. It is simply not the build the change was meant to produce.
 #
-# The scripts in tools/ghidra are the master copies. Ghidra runs them from C:/mcm2ghidra/scripts,
+# The scripts in tools/ghidra are the master copies. Ghidra runs them from $MCM2_WORK/scripts,
 # because analyzeHeadless.bat splits its arguments on spaces and this tree's path has one.
+#
+# On Linux it runs the same: Ghidra's own analyzeHeadless, and MSVC under Wine (tools/toolchain.py,
+# tools/docker). See env.sh for what can be set.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
-WORK=/c/mcm2ghidra
-GH="${GHIDRA_HEADLESS:-$GHIDRA_INSTALL_DIR/support/analyzeHeadless.bat}"
-[ -f "$GH" ] || { echo "set GHIDRA_INSTALL_DIR to a Ghidra 12.1 install, or GHIDRA_HEADLESS to its analyzeHeadless.bat"; exit 1; }
-ML=$(ls -d "/c/Program Files/Microsoft Visual Studio"/*/*/VC/Tools/MSVC/*/bin/Hostx64/x86/ml.exe | tail -1)
+. "$HERE/env.sh"
 
 mkdir -p "$WORK/scripts" "$WORK/out"
 cp "$HERE"/*.java "$WORK/scripts/"
+# The verified instruction forms (tools/verify_encodings.py --table data/encodings.tsv), when there
+# are some: the export emits those as mnemonics, the rest as bytes. Either way the bytes are retail's.
+[ -f "$REPO/data/encodings.tsv" ] && cp "$REPO/data/encodings.tsv" "$WORK/out/"
 
 echo "=== 1/6 export ==="
-"$GH" C:/mcm2ghidra/proj MCM2 -process Mcm2.exe -noanalysis \
-    -scriptPath C:/mcm2ghidra/scripts -postScript ExportAsm.java C:/mcm2ghidra/out 2>&1 \
+"$GH" "$WORK/proj" MCM2 -process Mcm2.exe -noanalysis \
+    -scriptPath "$WORK/scripts" -postScript ExportAsm.java "$WORK/out" 2>&1 \
     | grep -iE "ExportAsm.java>|ERROR|Exception|error:" | sed 's/^INFO *//' \
     | grep -viE "^ExportAsm.java>   (code|data): " || true
 
 echo "=== 2/6 ports ==="
 cd "$REPO"
-py -3.12 tools/port.py
+$PYTHON tools/port.py
 
 echo "=== 3/6 assemble ==="
-cd "$WORK/out"
-"$ML" -c -coff -Fogame.obj game.asm 2>&1 | grep -viE "^(Microsoft|Copyright|$| Assembling)" || true
-ls -l "$WORK/out/game.obj"
+$PYTHON tools/assemble.py
 
 echo "=== 4/6 compile ==="
-cd "$REPO"
-py -3.12 tools/compile.py
-[ -f build/game.res ] || py -3.12 tools/resources.py
+$PYTHON tools/compile.py
+[ -f build/game.res ] || $PYTHON tools/resources.py
 
 echo "=== 5/6 link ==="
-py -3.12 tools/link.py
+$PYTHON tools/link.py
 
 echo "=== 6/6 verify against retail ==="
-py -3.12 tools/verify.py
+$PYTHON tools/verify.py
 echo CYCLE_DONE

@@ -382,3 +382,18 @@ int  riders_most(void);
    0x215C and + 0x2EBC in the game; riders.c). */
 BYTE* entrants(void);
 BYTE* start_grid(void);
+
+/*
+    The game's movies (video.c): never the Indeo 5 originals, but the MPEG-1 copy the launcher makes
+    of each with ffmpeg (ui\Intro.mpg beside ui\Intro.avi), on every platform. `movie` is the UIMovie
+    control (ui.c) playing it; `ended` and `user` are what the game gives a movie for when it ends.
+    video_open is FALSE when there is no copy, and the game goes on as if the movie had ended.
+*/
+BOOL  video_open(void* movie, const char* file, BOOL play, DWORD ended, DWORD user);
+void  video_close(void* movie);
+void  video_tick(void* movie);
+BOOL  video_size(void* movie, LONG* width, LONG* height);
+void* video_picture(void* movie);       /* the IDirectDrawSurface7 its frames are in, or NULL */
+void  video_play(void* movie);
+void  video_pause(void* movie, BOOL paused);
+void  video_stop(void* movie);

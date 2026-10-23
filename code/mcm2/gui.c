@@ -1687,10 +1687,27 @@ void* __fastcall gui_manager_capture_screen(gui_manager* self, void* edx_unused,
     }
     count = width * height;
     pixels = game_FUN_004a4410(count * depth, GUIMANAGER_CPP, 0x351);
+    /*
+        Only the part of `area` on the screen is read, and the rest is black. A modern layout's
+        dialog is centred at its own shape, so on a screen of another shape it is wider than the
+        screen (2133 at 16:9 on a 1920x1200 screen), and copying the whole of it read before each
+        row and past the surface's end, which crashed on starting a race.
+    */
     to = pixels;
     for (row = 0; row < height; row++) {
-        __movsb(to, FIELD(desc, DESC_PIXELS, BYTE*) + (row + top) * FIELD(desc, DESC_PITCH, int)
-                        + left * depth, width * depth);
+        int y = row + top;
+        int from = left > 0 ? left : 0;
+        int until = left + width < FIELD(desc, DESC_WIDTH, int) ? left + width : FIELD(desc, DESC_WIDTH, int);
+
+        if (y < 0 || y >= FIELD(desc, DESC_HEIGHT, int) || from >= until) {
+            __stosb(to, 0, width * depth);
+        } else {
+            if (from > left || until < left + width)
+                __stosb(to, 0, width * depth);
+            __movsb(to + (from - left) * depth,
+                    FIELD(desc, DESC_PIXELS, BYTE*) + y * FIELD(desc, DESC_PITCH, int) + from * depth,
+                    (until - from) * depth);
+        }
         to += width * depth;
     }
     VIRTUAL(surface, 0x80, surface_unlock)(surface, NULL);

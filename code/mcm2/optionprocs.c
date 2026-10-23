@@ -123,7 +123,8 @@ typedef int  (__fastcall* input_moved)(BYTE* device, void* edx_unused, int input
 #define session_gui     FIELD(game_session, 0x2C, gui_manager*)
 #define game_files      FIELD(game_main, 0x3338, dir_list*)
 #define game_controls   FIELD(game_main, 0x33FC, BYTE*)
-#define controls_device (*(int*) game_controls)
+#define controls_device (*(int*) game_controls)     /* the setup in use, its CurrentInputDevice */
+#define KEYBOARD_CONTROLS 6         /* "Keyboard"; 0 to 5 are joysticks' setups, 7 the mouse's */
 #define game_joystick   FIELD(game_inputs, 0xC, BYTE*)
 #define game_mouse      FIELD(game_inputs, 0x30, BYTE*)
 #define game_display    FIELD(game_main, 0xC, BYTE*)    /* modes: count 8, array 0x10 */
@@ -1067,7 +1068,7 @@ static void controls_open(BYTE* self)
     FIELD(self, CTL_FEEDBACK, int) = 0;
 #ifdef OPENMCM2_DEV
     if (dev_settings.menus_modern)
-        controls_device = 0;             /* this page edits keyboard bindings only */
+        controls_device = KEYBOARD_CONTROLS;    /* this page edits keyboard bindings only */
 #endif
     bind_controls(self, control_bindings, 11);
     list = find(self, ACTION_LIST, 0);
@@ -1079,8 +1080,8 @@ static void controls_open(BYTE* self)
     list_clear(list);
     for (i = 0; i < 8; i++) {
 #ifdef OPENMCM2_DEV
-        if (dev_settings.menus_modern && i > 0)
-            break;
+        if (dev_settings.menus_modern && i != KEYBOARD_CONTROLS)
+            continue;
 #endif
         load_string(0x1CC + i, text);
         list_add_text(list, NULL, text, i, 0);

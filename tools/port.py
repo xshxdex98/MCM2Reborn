@@ -27,10 +27,11 @@ import os
 import re
 import sys
 
+from paths import ASM
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 SRC = os.path.join(ROOT, "code", "mcm2")
-ASM = os.environ.get("MCM2_ASM", r"C:\mcm2ghidra\out\game.asm")
 PRISTINE = ASM + ".pristine"
 PORTS = os.path.join(ROOT, "build", "ports.tsv")
 

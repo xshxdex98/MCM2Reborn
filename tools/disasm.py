@@ -16,9 +16,9 @@ import sys
 
 import capstone
 
-from paths import RETAIL
+from paths import ASM as EXPORTED, RETAIL
 
-ASM = r"C:\mcm2ghidra\out\game.asm.pristine"
+ASM = EXPORTED + ".pristine"
 
 
 def load_names():

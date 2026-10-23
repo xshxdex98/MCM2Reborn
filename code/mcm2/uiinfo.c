@@ -54,6 +54,7 @@
 #define game_session   FIELD(game_main, 0x56C, BYTE*)
 #define game_profile   ((char*) game_main + 0x578)
 #define game_controls  FIELD(game_main, 0x33FC, BYTE*)
+#define KEYBOARD_CONTROLS 6         /* "Keyboard"; 0 to 5 are joysticks' setups, 7 the mouse's */
 #define game_resources (*(void* const*) 0x00578C84)
 
 /* The profile's parts, by offset. */
@@ -595,6 +596,12 @@ void __fastcall profile_load_controls(char* self)
     if (!VIRTUAL(game_main, GAME_SETTING_NUMBER, setting_number)(game_main, NULL, KEY_PRESET, 0)
         || game__strcmp(last, used))
         game_FUN_0044a1b0(game_controls);
+#ifdef OPENMCM2_DEV
+    /* No legacy joystick is ever picked (controllerpick.c), so a joystick's setup steers nothing:
+       the keyboard's is used instead. The modern controls page once saved setup 0, a joystick's. */
+    if (*(int*) game_controls < KEYBOARD_CONTROLS)
+        *(int*) game_controls = KEYBOARD_CONTROLS;
+#endif
     game_FUN_00449e20(game_controls, NULL, path, -1);
 }
 

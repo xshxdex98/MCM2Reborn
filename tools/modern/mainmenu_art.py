@@ -5,16 +5,22 @@ a blue for labels, and grey rows with a blue edge. Everything is laid out on a 1
 and drawn at SCALE times that, so the pictures are sharp at the size the menus show at
 (2560x1440: SCALE 4/3).
 """
+import sys
+from pathlib import Path
+
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from paths import FONTS, find_folder  # noqa: E402  (the Windows fonts: MCM2_FONTS, tools/paths.py)
 
 SCALE = 4 / 3
 W, H = round(1920 * SCALE), round(1080 * SCALE)
 
-BAHNSCHRIFT = r"C:\Windows\Fonts\bahnschrift.ttf"
-CONSOLAS = r"C:\Windows\Fonts\consola.ttf"
-SEGOE = r"C:\Windows\Fonts\segoeui.ttf"
-SEGOE_SEMIBOLD = r"C:\Windows\Fonts\seguisb.ttf"
+BAHNSCHRIFT = find_folder(FONTS, "bahnschrift.ttf")
+CONSOLAS = find_folder(FONTS, "consola.ttf")
+SEGOE = find_folder(FONTS, "segoeui.ttf")
+SEGOE_SEMIBOLD = find_folder(FONTS, "seguisb.ttf")
 
 CREAM = (240, 236, 224)
 YELLOW = (245, 211, 39)

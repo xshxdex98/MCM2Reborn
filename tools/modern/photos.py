@@ -6,6 +6,7 @@ cropped to 16:9 (clear of the sites' watermarks), scaled to 2560x1440, and
 darkened on the left where the menu is and along the bottom, as the menu's look has it. The
 renderer reads them as ui\modern\photo1.tga.. (32-bit, bottom up) and crossfades between them.
 """
+import os
 import struct
 import sys
 from pathlib import Path
@@ -13,7 +14,9 @@ from pathlib import Path
 from PIL import Image, ImageFilter
 
 W, H = 2560, 1440
-DOWNLOADS = Path(r"C:\Users\xshxd\Downloads")
+# Where the sources were saved: MCM2_PHOTOS, else the Downloads folder.
+DOWNLOADS = Path(os.environ.get("MCM2_PHOTOS") or (r"C:\Users\xshxd\Downloads" if os.name == "nt"
+                                                   else Path.home() / "Downloads"))
 
 # The sources and the 16:9 part of each to use (left, top, right, bottom).
 SOURCES = [

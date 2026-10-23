@@ -21,6 +21,8 @@ namespace Mcm2Reborn.Launcher
         public string DataFolder;   // where its track and bike data are, if not in Folder (the CD)
         public bool Download;       // not a copy here: the game downloaded (Updates.InstallBase)
         public bool NeedsDisc;      // its tracks are not here, and no CD with them is in a drive
+        // On a CD, so MCM2:Reborn cannot go into its folder.
+        public bool OnDisc => Kind == "CD" || Install.IsDisc(Folder);
         public override string ToString() => Folder;
     }
 
@@ -36,6 +38,9 @@ namespace Mcm2Reborn.Launcher
         // What is copied from the CD when an install has left it there.
         static readonly string[] DiscFolders = DataFolders.Concat(new[] { "RES", "TERAFORM" }).ToArray();
         static readonly string[] CopyFolders = { "RES", "UI" };
+        // What Setup copies beside the game from the CD's root, and the game does not start without:
+        // the licence check it makes at start (EBUEULA.DLL) and the licence that shows (EULA.RTF).
+        static readonly string[] SetupFiles = { "EBUEULA.DLL", "EULA.RTF" };
 
         // Not copied from a copy of the game: a developer's leftovers, recordings and logs.
         static readonly string[] SkipFolders = { "SDK" };
@@ -147,6 +152,26 @@ namespace Mcm2Reborn.Launcher
             foreach (string folder in Search(Path.Combine(Environment.GetFolderPath(
                          Environment.SpecialFolder.UserProfile), "Downloads"), 3))
                 Add(folder, "COPY");
+
+            // The game's CD in a drive: its GAME folder, which Setup would copy.
+            foreach (DriveInfo drive in DiscDrives())
+            {
+                Add(Path.Combine(drive.RootDirectory.FullName, "GAME"), "CD");
+                Add(drive.RootDirectory.FullName, "CD");
+            }
+
+            // Under Wine or Proton: the Linux home's own folders (a Steam or Lutris prefix has
+            // Windows ones of its own), and a CD or disc image Linux has mounted (its GAME folder).
+            string home = Wine.Home;
+            if (home != null)
+                foreach (string place in new[] { "", "Games", "Downloads", "Desktop", "Documents" })
+                    foreach (string folder in Search(Path.Combine(home, place), place.Length == 0 ? 1 : 3))
+                        Add(folder, "COPY");
+            foreach (string mount in Wine.MountPoints())
+            {
+                Add(Path.Combine(mount, "GAME"), "CD");
+                Add(mount, "CD");
+            }
             return found;
         }
 
@@ -230,19 +255,51 @@ namespace Mcm2Reborn.Launcher
             return found;
         }
 
-        // The game's CD in a drive: a folder on it with the game's data.
+        // The game's CD in a drive, or mounted by Linux: a folder on it with the game's data.
         public static string FindDisc()
         {
-            foreach (DriveInfo drive in DriveInfo.GetDrives())
+            foreach (DriveInfo drive in DiscDrives())
             {
-                if (drive.DriveType != DriveType.CDRom || !drive.IsReady)
-                    continue;
                 foreach (string folder in new[] { drive.RootDirectory.FullName }.Concat(
                              Directory.GetDirectories(drive.RootDirectory.FullName)))
                     if (DiscHasData(folder))
                         return folder;
             }
+            foreach (string mount in Wine.MountPoints())
+                foreach (string folder in new[] { mount, Path.Combine(mount, "GAME") })
+                    if (Directory.Exists(folder) && DiscHasData(folder))
+                        return folder;
             return null;
+        }
+
+        static IEnumerable<DriveInfo> DiscDrives()
+        {
+            var found = new List<DriveInfo>();
+            foreach (DriveInfo drive in DriveInfo.GetDrives())
+            {
+                try
+                {
+                    if (drive.DriveType == DriveType.CDRom && drive.IsReady)
+                        found.Add(drive);
+                }
+                catch (Exception)
+                {
+                    // a drive that went away while being asked
+                }
+            }
+            return found;
+        }
+
+        public static bool IsDisc(string folder)
+        {
+            try
+            {
+                return new DriveInfo(Path.GetPathRoot(Path.GetFullPath(folder))).DriveType == DriveType.CDRom;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         // The game copied from `copy` to `to` (unless they are the same folder), its data from the CD
@@ -260,6 +317,21 @@ namespace Mcm2Reborn.Launcher
                     if (Directory.Exists(from) && !Directory.Exists(Path.Combine(to, folder)))
                         Gather(from, Path.Combine(to, folder), files, false);
                 }
+            // Setup's files, where a copy has none of its own: from the CD's root, beside its GAME folder.
+            foreach (string name in SetupFiles)
+            {
+                if (File.Exists(Path.Combine(copy.Folder, name)))
+                    continue;
+                string from = new[] { copy.Folder, copy.DataFolder }
+                    .Where(f => f != null)
+                    .Select(f => new DirectoryInfo(f))
+                    .SelectMany(d => new[] { d, d.Parent })
+                    .Where(d => d != null)
+                    .Select(d => Path.Combine(d.FullName, name))
+                    .FirstOrDefault(File.Exists);
+                if (from != null)
+                    files.Add((from, Path.Combine(to, name)));
+            }
             Directory.CreateDirectory(to);
             for (int i = 0; i < files.Count; i++)
             {
@@ -331,6 +403,10 @@ namespace Mcm2Reborn.Launcher
             string placed = Path.Combine(folder, LauncherName);
             if (!string.Equals(Path.GetFullPath(self), Path.GetFullPath(placed), StringComparison.OrdinalIgnoreCase))
                 File.Copy(self, placed, true);
+            // Under Wine a shortcut becomes a Linux menu entry that runs the default prefix, not
+            // this one: Steam or Lutris starts the game there instead.
+            if (Wine.Under)
+                return placed;
             Shortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
                                   "MCM2 Reborn.lnk"), placed, folder);
             string menu = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "MCM2 Reborn");

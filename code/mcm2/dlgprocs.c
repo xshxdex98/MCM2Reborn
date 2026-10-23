@@ -370,9 +370,14 @@ int __fastcall movie_screen_tick(BYTE* self, void* edx_unused, float seconds)
                 return dialog_tick(self, NULL, seconds);
             }
             FIELD(self, 0x7F78, int) = 0;
+#ifdef OPENMCM2_DEV
+            video_play(FIELD(self, 0x7F58, BYTE*));         /* no stream: video.c plays it */
+            video_pause(FIELD(self, 0x7F58, BYTE*), FIELD(self, 0x7F78, DWORD));
+#else
             game_FUN_004a3ef0(FIELD(FIELD(self, 0x7F58, BYTE*), 0x1EC, void*));
             VIRTUAL(FIELD(FIELD(self, 0x7F58, BYTE*), 0x1EC, void*), 0x40, method_1)(
                 FIELD(FIELD(self, 0x7F58, BYTE*), 0x1EC, void*), NULL, FIELD(self, 0x7F78, DWORD));
+#endif
             control_show(FIELD(self, 0x7F58, BYTE*), NULL, TRUE, TRUE);
         }
     }
@@ -1182,8 +1187,8 @@ static BYTE* movie_add(BYTE* self, int line)
 }
 
 /*
-    IntroVid.dtm: ui\Intro.avi, unless skipped; the menus once it closes. Under Wine or Proton
-    the dev build skips it: their DirectShow cannot play its 2000 codec and shows a test card.
+    IntroVid.dtm: ui\Intro.avi, unless skipped; the menus once it closes. The dev build plays the
+    launcher's MPEG-1 copy of it (video.c), and goes straight on to the menus without one.
 */
 PORT(0x004540D0)
 void __fastcall intro_video_handle(BYTE* self, void* edx_unused, ui_event* event)
@@ -1191,11 +1196,7 @@ void __fastcall intro_video_handle(BYTE* self, void* edx_unused, ui_event* event
     (void) edx_unused;
     if (event->type == EVENT_OPEN) {
         gui_manager_show_cursors(session_gui, NULL, FALSE);
-#ifdef OPENMCM2_DEV
-        if (!wait_skipped && !dev_under_wine()) {
-#else
         if (!wait_skipped) {
-#endif
             FIELD(self, 0x7F5C, BYTE*) = movie_add(self, 0xFEF);
             dialog_add(self, NULL, FIELD(self, 0x7F5C, BYTE*), 0, 1);
             if (movie_open(FIELD(self, 0x7F5C, BYTE*), NULL, NAME(0x0056FF80), TRUE, MOVIE_ENDED,
@@ -1209,8 +1210,8 @@ void __fastcall intro_video_handle(BYTE* self, void* edx_unused, ui_event* event
     }
 }
 
-/* The credits: ui\Credits.avi behind the Back button; the menus once it closes (at once under
-   Wine or Proton in the dev build, as the intro). */
+/* The credits: ui\Credits.avi behind the Back button; the menus once it closes (at once in the
+   dev build when there is no MPEG-1 copy of it, as the intro). */
 PORT(0x00453F80)
 void __fastcall credits_handle(BYTE* self, void* edx_unused, ui_event* event)
 {
@@ -1219,12 +1220,6 @@ void __fastcall credits_handle(BYTE* self, void* edx_unused, ui_event* event)
         if (clicked(event, NAME(0x0056F8CC)))                                 /* "Back" */
             dialog_end(self, NULL, 0);
     } else if (event->type == EVENT_OPEN) {
-#ifdef OPENMCM2_DEV
-        if (dev_under_wine()) {
-            dialog_end(self, NULL, 0);
-            return;
-        }
-#endif
         FIELD(self, 0x7F58, BYTE*) = movie_add(self, 0xFAD);
         dialog_add(self, NULL, FIELD(self, 0x7F58, BYTE*), 0, 1);
         object_unlink(FIELD(self, 0x7F58, BYTE*));
@@ -3697,6 +3692,10 @@ static void menu_movie_pause(BYTE* self, DWORD paused)
     BYTE* movie = FIELD(self, MENU_MOVIE, BYTE*);
     void* video = movie ? FIELD(movie, 0x1EC, void*) : NULL;
 
+#ifdef OPENMCM2_DEV
+    if (movie)
+        video_pause(movie, paused);         /* video.c's, as the stream is never made */
+#endif
     if (video)
         VIRTUAL(video, 0x40, method_1)(video, NULL, paused);
 }
@@ -3706,6 +3705,10 @@ static void menu_movie_stop(BYTE* self)
     BYTE* movie = FIELD(self, MENU_MOVIE, BYTE*);
     void* video = movie ? FIELD(movie, 0x1EC, void*) : NULL;
 
+#ifdef OPENMCM2_DEV
+    if (movie)
+        video_stop(movie);
+#endif
     if (video)
         game_FUN_004a3f30(video);
 }

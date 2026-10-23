@@ -15,7 +15,7 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(os.path.dirname(HERE), "build", "release", "MCM2-base.zip")
-SOURCE = r"C:\Users\xshxd\OneDrive\Desktop\MCM2"
+SOURCE = r"C:\Users\xshxd\OneDrive\Desktop\MCM2" if os.name == "nt" else None
 LEFT_OUT = {"mcm2_profile.json", "errorlog.txt"}
 
 
@@ -30,6 +30,8 @@ def wanted(relative):
 
 def main():
     source = sys.argv[1] if len(sys.argv) > 1 else SOURCE
+    if not source:
+        sys.exit("usage: base_package.py <clean game folder>")
     if not os.path.isfile(os.path.join(source, "Mcm2.exe")):
         sys.exit("no Mcm2.exe in %s" % source)
     os.makedirs(os.path.dirname(OUT), exist_ok=True)

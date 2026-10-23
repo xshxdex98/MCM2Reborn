@@ -32,10 +32,27 @@ static BOOL has_switch(const char* name)
     return FALSE;
 }
 
+/*
+    The game sees the screen in its own pixels, not in those of Windows' display scaling. Not DPI
+    aware, at 125% it was given a 1536x960 desktop and stretched to the 1920x1200 panel, and the
+    exclusive DirectInput mouse mixed the two: each read pushed toward the bottom right, in the
+    screen's proportions, by more than a slow move, so a slow move left went right. Wine has no
+    such scaling. It must come before any window is made.
+*/
+static void dpi_aware(void)
+{
+    typedef BOOL (WINAPI* aware_fn)(void);
+    aware_fn aware = (aware_fn) api("user32.dll", "SetProcessDPIAware");
+
+    if (aware && aware())
+        log_line("dpi: the screen in its own pixels, not scaled");
+}
+
 void open_start(void)
 {
     log_open();
     log_line("OpenMCM2 starting");
+    dpi_aware();
     crash_install();
     profile_install();
 #ifdef OPENMCM2_DEV

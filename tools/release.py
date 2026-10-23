@@ -19,9 +19,10 @@ import shutil
 import sys
 import zipfile
 
+from paths import GAME, find_folder
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-GAME = os.environ.get("MCM2_GAME") or r"C:\Users\xshxd\OneDrive\Desktop\PC Games\MCM2"
 OUT = os.path.join(REPO, "build", "release")
 LAUNCHER = "MCM2Reborn Launcher.exe"
 
@@ -47,10 +48,10 @@ def main():
         (need(os.path.join(REPO, "dist", "MCM2Reborn.ini")), "MCM2Reborn.ini"),
         (need(os.path.join(REPO, "build", "eos", "mcm2-eos.exe")), "mcm2-eos.exe"),
         (need(os.path.join(REPO, "build", "eos", "EOSSDK-Win64-Shipping.dll")), "EOSSDK-Win64-Shipping.dll"),
-        (need(os.path.join(GAME, "eos.ini")), "eos.ini"),
+        (need(find_folder(GAME, "eos.ini")), "eos.ini"),
         (need(os.path.join(REPO, "build", "launcher", LAUNCHER)), LAUNCHER),
     ]
-    for root, under in ((os.path.join(GAME, "UI", "modern"), "UI/modern"),
+    for root, under in ((find_folder(GAME, "UI", "modern"), "UI/modern"),
                         (need(os.path.join(REPO, "dist", "content")), "")):
         for folder, _, names in os.walk(need(root)):
             for name in names:

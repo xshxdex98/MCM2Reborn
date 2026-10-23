@@ -100,6 +100,10 @@ static __inline void set_vector(vector3* v, float x, float y, float z)
     v->z = z;
 }
 
+/* `v` turned by `angle` about `axis`, scaled to length 1, into `out`; `axis` is scaled to length 1
+   too. d3drm.dll's, ported (d3drm.c). */
+void* __stdcall D3DRMVectorRotate(vector3* out, const vector3* v, vector3* axis, float angle);
+
 /* Parameter.cpp's reader; its size is the room the original gives it. */
 typedef struct param_file {
     BYTE opaque[0x6C4];

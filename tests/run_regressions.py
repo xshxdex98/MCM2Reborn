@@ -1,15 +1,14 @@
-"""Build/run native regression fixtures against production C helpers (Windows/MSVC).
-The menu and movie helpers are extracted verbatim so changes are always tested.
+"""Build/run native regression fixtures against production C helpers (MSVC; on Linux under Wine,
+see tools/toolchain.py). The menu and movie helpers are extracted verbatim so changes are always tested.
 """
-import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import compile as compiler
+import toolchain
 
 
 def function(source, signature):
@@ -39,25 +38,26 @@ def main():
     end = counts.index("#endif", begin)
     (out / "counts_under_test.inc").write_text(counts[begin:end], encoding="utf-8")
     env = compiler.msvc_environment()
-    cl = shutil.which("cl", path=env.get("Path") or env.get("PATH"))
-    command = [cl, "/nologo", "/std:c11", "/O2", "/Gy", "/W4", "/WX", "/wd4100", "/wd4505", "/arch:IA32",
-               "/DOPENMCM2_DEV", "/D_CRT_SECURE_NO_WARNINGS", "/I" + str(ROOT / "code/mcm2"),
-               "/I" + str(out), str(ROOT / "tests/native_regressions.c"), str(ROOT / "code/dev/padsony.c"),
-               "/Fe" + str(out / "native.exe"), "/Fo" + str(out) + os.sep,
+    native = toolchain.native
+    command = toolchain.command("cl", "x86", env) + [
+               "/nologo", "/std:c11", "/O2", "/Gy", "/W4", "/WX", "/wd4100", "/wd4505", "/arch:IA32",
+               "/DOPENMCM2_DEV", "/D_CRT_SECURE_NO_WARNINGS", "/I" + native(ROOT / "code/mcm2"),
+               "/I" + native(out), native(ROOT / "tests/native_regressions.c"), native(ROOT / "code/dev/padsony.c"),
+               "/Fe" + native(out / "native.exe"), "/Fo" + native(out) + "\\",
                "/link", "/OPT:REF", "winmm.lib", "user32.lib"]
     subprocess.run(command, cwd=ROOT, env=env, check=True)
-    subprocess.run([str(out / "native.exe")], check=True)
+    subprocess.run(toolchain.run_exe(str(out / "native.exe")), check=True)
     input_command = command[:]
-    source_at = input_command.index(str(ROOT / "tests/native_regressions.c"))
-    input_command[source_at:source_at + 2] = [str(ROOT / "tests/input_regressions.c")]
-    input_command[input_command.index("/Fe" + str(out / "native.exe"))] = "/Fe" + str(out / "input.exe")
+    source_at = input_command.index(native(ROOT / "tests/native_regressions.c"))
+    input_command[source_at:source_at + 2] = [native(ROOT / "tests/input_regressions.c")]
+    input_command[input_command.index("/Fe" + native(out / "native.exe"))] = "/Fe" + native(out / "input.exe")
     subprocess.run(input_command, cwd=ROOT, env=env, check=True)
-    subprocess.run([str(out / "input.exe")], check=True)
+    subprocess.run(toolchain.run_exe(str(out / "input.exe")), check=True)
     counts_command = input_command[:]
-    counts_command[counts_command.index(str(ROOT / "tests/input_regressions.c"))] = str(ROOT / "tests/count_regressions.c")
-    counts_command[counts_command.index("/Fe" + str(out / "input.exe"))] = "/Fe" + str(out / "counts.exe")
+    counts_command[counts_command.index(native(ROOT / "tests/input_regressions.c"))] = native(ROOT / "tests/count_regressions.c")
+    counts_command[counts_command.index("/Fe" + native(out / "input.exe"))] = "/Fe" + native(out / "counts.exe")
     subprocess.run(counts_command, cwd=ROOT, env=env, check=True)
-    subprocess.run([str(out / "counts.exe")], check=True)
+    subprocess.run(toolchain.run_exe(str(out / "counts.exe")), check=True)
 
 
 if __name__ == "__main__":

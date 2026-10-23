@@ -402,8 +402,8 @@ public class RttiMcm2 extends GhidraScript {
         }
         sb.append("\n}\n");
 
-        try (PrintWriter w = new PrintWriter(OUT + "\\classes.json", "UTF-8")) { w.print(sb); }
-        println("WROTE " + OUT + "\\classes.json");
+        try (PrintWriter w = new PrintWriter(new File(OUT, "classes.json"), "UTF-8")) { w.print(sb); }
+        println("WROTE " + new File(OUT, "classes.json"));
 
         List<Map.Entry<String, List<Long>>> top = new ArrayList<>(classVftables.entrySet());
         top.sort((a, b) -> b.getValue().size() - a.getValue().size());

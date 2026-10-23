@@ -138,8 +138,6 @@ int   __cdecl    game__rand(void);
 void  __cdecl    game_FUN_0053a27e(unsigned seed);                         /* srand */
 DWORD __cdecl    game_FUN_004c41d0(void);                                  /* the time */
 float __cdecl    game_FUN_00461ac0(float value);                           /* a fast square root */
-void* __stdcall  D3DRMVectorRotate(vector3* out, const vector3* v, const vector3* axis,
-                                   float angle);
 
 /* The session's camera: its place (each pointer may be NULL), where it looks, its viewport. */
 void __fastcall game_FUN_0042f8d0(BYTE* camera, void* edx_unused, const vector3* position,

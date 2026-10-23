@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LIBRARY NAME="DPLAYX.dll" PATH="DPLAYX.dll" DATE="" VERSION="">
+    <EXPORT ORDINAL="1" NAME="DirectPlayCreate" PURGE="12" COMMENT="" />
+    <EXPORT ORDINAL="9" NAME="DirectPlayEnumerate" PURGE="8" COMMENT="" />
+    <EXPORT ORDINAL="2" NAME="DirectPlayEnumerateA" PURGE="8" COMMENT="" />
+    <EXPORT ORDINAL="3" NAME="DirectPlayEnumerateW" PURGE="8" COMMENT="" />
+    <EXPORT ORDINAL="4" NAME="DirectPlayLobbyCreateA" PURGE="20" COMMENT="" />
+    <EXPORT ORDINAL="5" NAME="DirectPlayLobbyCreateW" PURGE="20" COMMENT="" />
+</LIBRARY>

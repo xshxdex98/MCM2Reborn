@@ -13,15 +13,17 @@ import re
 import struct
 import sys
 
+import os
+
 import capstone
 
-from paths import RETAIL
+from paths import ASM as EXPORTED, RETAIL
 
 ROOT = __file__.rsplit("tools", 1)[0]
-BUILD = ROOT + r"build\OpenMCM2.exe"
-MAP = ROOT + r"build\OpenMCM2.map"
-PORTS = ROOT + r"build\ports.tsv"
-ASM = r"C:\mcm2ghidra\out\game.asm.pristine"
+BUILD = os.path.join(ROOT, "build", "OpenMCM2.exe")
+MAP = os.path.join(ROOT, "build", "OpenMCM2.map")
+PORTS = os.path.join(ROOT, "build", "ports.tsv")
+ASM = EXPORTED + ".pristine"
 
 
 def sections(image):

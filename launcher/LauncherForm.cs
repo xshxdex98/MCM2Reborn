@@ -49,13 +49,17 @@ namespace Mcm2Reborn.Launcher
         RectangleF changelogArea;
         int[] setupChosen;                          // the setup page's choices while it is open, else null
         readonly TextBox riderName;                 // the first rider's name, on the install page
+        bool playOnStart;                           // --play: the game started once the update check is done
+        readonly bool closeWithGame;                // --play: the launcher closes when the game does
+        bool readied;                               // the update check's follow-up (Ready) has run
 
         readonly List<Hit> hits = new List<Hit>();
         Hit hover;
         readonly System.Windows.Forms.Timer countTimer = new System.Windows.Forms.Timer { Interval = CountEveryMs };
 
-        public LauncherForm()
+        public LauncherForm(bool play)
         {
+            playOnStart = closeWithGame = play;
             Text = "MCM2:Reborn";
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterScreen;
@@ -188,6 +192,7 @@ namespace Mcm2Reborn.Launcher
                 if (folder != null && !busy && status.Length == 0)
                     status = releasesFailed != null ? "COULD NOT CHECK FOR UPDATES" : "UP TO DATE";
                 Invalidate();
+                Ready();
                 return;
             }
             if (Process.GetProcessesByName(Path.GetFileNameWithoutExtension(Install.GameExe(folder))).Length > 0)
@@ -200,12 +205,43 @@ namespace Mcm2Reborn.Launcher
             Work("UPDATING TO " + newest.Tag.ToUpperInvariant(), report => {
                 bool launcher = Updates.Apply(newest, folder, report);
                 return launcher ? "restart" : "UPDATED TO " + newest.Tag.ToUpperInvariant();
+            }, Ready);
+        }
+
+        // Once the update check is done: the movies' copies made if there is an ffmpeg to make them
+        // (and it has not failed here before), then with --play the game started.
+        void Ready()
+        {
+            if (folder == null || busy || readied)
+                return;
+            readied = true;
+            string at = folder;
+            Background(() => {
+                string ffmpeg = Videos.Missing(at).Count > 0 ? Videos.FindFfmpeg(at) : null;
+                Ui(() => {
+                    if (ffmpeg != null && !Videos.FailedBefore(ffmpeg))
+                        Work("CONVERTING THE VIDEOS", report => VideosEnded(Videos.Convert(at, ffmpeg, report), null),
+                             PlayIfAsked);
+                    else
+                        PlayIfAsked();
+                });
             });
         }
 
+        static string VideosEnded(int failed, string done) =>
+            failed > 0 ? "THE VIDEOS COULD NOT BE CONVERTED: THE GAME SKIPS THEM" : done ?? "VIDEOS CONVERTED";
+
+        void PlayIfAsked()
+        {
+            if (!playOnStart || setupChosen != null)
+                return;
+            playOnStart = false;
+            Play();
+        }
+
         // Something long, off the window's thread: `job` reports its progress and says how it ended
-        // ("restart" for the launcher to start again, it having been replaced).
-        void Work(string what, Func<Action<string, float>, string> job)
+        // ("restart" for the launcher to start again, it having been replaced); then `then`, if given.
+        void Work(string what, Func<Action<string, float>, string> job, Action then = null)
         {
             busy = true;
             progress = 0;
@@ -230,15 +266,17 @@ namespace Mcm2Reborn.Launcher
                     progress = -1;
                     if (ended == "restart" && folder != null && Updates.SwapLauncher(folder))
                     {
-                        Process.Start(Path.Combine(folder, Install.LauncherName));
+                        Process.Start(Path.Combine(folder, Install.LauncherName), closeWithGame ? Program.PlayArgument : "");
                         Close();
                         return;
                     }
                     status = ended;
-                    statusColour = ended.StartsWith("FAILED") ? Theme.Red : Theme.Green;
+                    statusColour = ended.StartsWith("FAILED") ? Theme.Red
+                                 : ended.StartsWith("THE VIDEOS") ? Theme.Orange : Theme.Green;
                     if (folder != null && !countTimer.Enabled)
                         ShowInstalled();
                     Invalidate();
+                    then?.Invoke();
                 });
             });
         }
@@ -250,7 +288,7 @@ namespace Mcm2Reborn.Launcher
             if (copies.Count == 0 || busy)
                 return;
             GameCopy copy = copies[chosen];
-            string to = intoGameFolder && !copy.Download ? copy.Folder : destination;
+            string to = intoGameFolder && !copy.Download && !copy.OnDisc ? copy.Folder : destination;
             string rider = riderName.Text.Trim();
             if (!copy.Download && copy.DataFolder == null && !Install.IsGame(copy.Folder))
                 return;
@@ -282,19 +320,24 @@ namespace Mcm2Reborn.Launcher
             List<Release> known = releases;
             Work("INSTALLING", report => {
                 if (copy.Download)
-                    Updates.InstallBase(known, to, (file, done) => report("THE GAME  ·  " + file, done * 0.6f));
+                    Updates.InstallBase(known, to, (file, done) => report("THE GAME  ·  " + file, done * 0.55f));
                 else
-                    Install.CopyGame(copy, to, (file, done) => report("COPYING THE GAME  ·  " + file, done * 0.6f));
+                    Install.CopyGame(copy, to, (file, done) => report("COPYING THE GAME  ·  " + file, done * 0.55f));
                 if (local != null)
                 {
-                    Updates.Unpack(local, to, (file, done) => report(file, 0.6f + 0.4f * done));
+                    Updates.Unpack(local, to, (file, done) => report(file, 0.55f + 0.3f * done));
                     string tag = Path.GetFileNameWithoutExtension(local).Substring("MCM2Reborn-".Length);
                     File.WriteAllText(Path.Combine(to, Updates.VersionFile), tag);
                 }
                 else
                 {
-                    Updates.Apply(newest, to, (file, done) => report(file, 0.6f + 0.4f * done));
+                    Updates.Apply(newest, to, (file, done) => report(file, 0.55f + 0.3f * done));
                 }
+                // The movies' copies, which the game plays in place of the originals.
+                string ffmpeg = Videos.FindFfmpeg(to);
+                int failed = ffmpeg != null
+                    ? Videos.Convert(to, ffmpeg, (file, done) => report("CONVERTING THE VIDEOS  ·  " + file, 0.85f + 0.15f * done))
+                    : 0;
                 // The launcher in its install: a newer one the package brought is that one.
                 string next = Path.Combine(to, Install.LauncherName + ".new");
                 Install.PlaceLauncher(to);
@@ -306,8 +349,12 @@ namespace Mcm2Reborn.Launcher
                 }
                 Install.Installed = to;
                 Setup.NameFirstRider(to, rider);
-                Ui(() => folder = to);
-                return "INSTALLED. READY TO RIDE";
+                Ui(() => {
+                    folder = to;
+                    readied = true;                 // the update check's follow-up is done already
+                });
+                return ffmpeg == null ? "INSTALLED. READY TO RIDE  ·  NO FFMPEG FOUND, SO NO VIDEOS"
+                                      : VideosEnded(failed, "INSTALLED. READY TO RIDE");
             });
         }
 
@@ -344,7 +391,19 @@ namespace Mcm2Reborn.Launcher
             {
                 if (dialog.ShowDialog(this) == DialogResult.OK)
                 {
-                    destination = Path.Combine(dialog.SelectedPath, "MCM2 Reborn");
+                    // An empty folder is taken as it is; one with anything in it gets a folder of
+                    // MCM2:Reborn's own inside, so nothing already there is mixed in with it.
+                    string picked = dialog.SelectedPath;
+                    bool empty;
+                    try
+                    {
+                        empty = !Directory.EnumerateFileSystemEntries(picked).Any();
+                    }
+                    catch (Exception)
+                    {
+                        empty = false;
+                    }
+                    destination = empty ? picked : Path.Combine(picked, "MCM2 Reborn");
                     intoGameFolder = false;
                 }
             }
@@ -368,6 +427,9 @@ namespace Mcm2Reborn.Launcher
                 its window; on some Windows setups that leaves the new game without foreground
                 input. Wait off the UI thread for its first window, activate it, then get the
                 launcher out of the way.
+
+                When the game ends, the launcher closes with --play; under Wine or Proton it comes
+                back, so a Steam Deck in Gaming Mode is not left on a minimised window.
             */
             Background(() => {
                 IntPtr window = IntPtr.Zero;
@@ -399,8 +461,30 @@ namespace Mcm2Reborn.Launcher
                             SetForegroundWindow(target);
                         WindowState = FormWindowState.Minimized;
                     });
-                    game.Dispose();
                 }
+                if (closeWithGame || Wine.Under)
+                {
+                    try
+                    {
+                        game.WaitForExit();
+                    }
+                    catch (Exception)
+                    {
+                        // not ours to wait on after all: the launcher stays as it is
+                        game.Dispose();
+                        return;
+                    }
+                    Ui(() => {
+                        if (closeWithGame)
+                        {
+                            Close();
+                            return;
+                        }
+                        WindowState = FormWindowState.Normal;
+                        Activate();
+                    });
+                }
+                game.Dispose();
             });
         }
 
@@ -509,7 +593,7 @@ namespace Mcm2Reborn.Launcher
                 status = "";
                 FetchReleases();
             }, !busy);
-            SmallButton(g, R(282, 384, 190, 46), "OPEN FOLDER", () => Process.Start("explorer.exe", "\"" + folder + "\""), true);
+            SmallButton(g, R(282, 384, 190, 46), "OPEN FOLDER", () => Wine.OpenFolder(folder), true);
             SmallButton(g, R(488, 384, 150, 46), "SETUP", () => OpenSetup(false), !busy);
             DrawStatus(g, 452);
         }
@@ -532,14 +616,15 @@ namespace Mcm2Reborn.Launcher
             }
 
             bool download = copies.Count > 0 && copies[chosen].Download;
+            bool ownFolder = copies.Count > 0 && !download && !copies[chosen].OnDisc;
             using (Font text = Theme.Text(14))
                 Theme.Words(g, "WHERE IT GOES:", text, Theme.Grey, R(36, y + 4, 640, 22));
             y += 28;
-            Choice(g, R(36, y, 640, 38), "A NEW FOLDER  ·  " + destination.ToUpperInvariant(), !intoGameFolder || download,
+            Choice(g, R(36, y, 640, 38), "A NEW FOLDER  ·  " + destination.ToUpperInvariant(), !intoGameFolder || !ownFolder,
                    () => intoGameFolder = false);
             SmallButton(g, R(560, y + 4, 110, 30), "CHANGE", ChooseDestination, !busy);
             y += 40;
-            if (!download)
+            if (ownFolder)
                 Choice(g, R(36, y, 640, 38), "INTO THE GAME'S OWN FOLDER (FOR A COPY YOU KEEP FOR IT)", intoGameFolder,
                        () => intoGameFolder = true);
             y += 48;

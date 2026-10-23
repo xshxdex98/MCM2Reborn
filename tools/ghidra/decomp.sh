@@ -8,9 +8,7 @@
 # a tracked new), and it also lists inlined library code under the file that inlined it.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
-WORK=/c/mcm2ghidra
-GH="${GHIDRA_HEADLESS:-$GHIDRA_INSTALL_DIR/support/analyzeHeadless.bat}"
-[ -f "$GH" ] || { echo "set GHIDRA_INSTALL_DIR to a Ghidra 12.1 install, or GHIDRA_HEADLESS to its analyzeHeadless.bat"; exit 1; }
+. "$HERE/env.sh"
 case "$1" in
     0x*-0x*) ;;
     *) echo "usage: decomp.sh 0xSTART-0xEND <name>"; exit 1 ;;
@@ -27,8 +25,8 @@ ADDRESSES=$(sed -n 's/^; @\([0-9A-F]\{8\}\)$/\1/p' "$WORK/out/game.asm.pristine"
 cp "$HERE"/*.java "$WORK/scripts/"
 mkdir -p "$WORK/out/modules"
 # shellcheck disable=SC2086
-"$GH" C:/mcm2ghidra/proj MCM2 -process Mcm2.exe -noanalysis -readOnly \
-    -scriptPath C:/mcm2ghidra/scripts -postScript Decomp.java C:/mcm2ghidra/out/modules $ADDRESSES 2>&1 \
+"$GH" "$WORK/proj" MCM2 -process Mcm2.exe -noanalysis -readOnly \
+    -scriptPath "$WORK/scripts" -postScript Decomp.java "$WORK/out/modules" $ADDRESSES 2>&1 \
     | grep -iE "Decomp.java>|ERROR|Exception" | sed 's/^INFO *//' || true
 mv "$WORK/out/modules/decomp.c" "$WORK/out/modules/$2.c"
 echo "-> $WORK/out/modules/$2.c"

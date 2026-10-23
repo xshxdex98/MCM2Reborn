@@ -7,11 +7,15 @@ which the dev build loads for the game too. A screen is 2560x1440 on one grid: 9
 margins, 64 px top and bottom, one 40 px gutter between panels.
 """
 import re
+import sys
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-SYMBOLS = r"C:\Windows\Fonts\seguisym.ttf"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from paths import FONTS, find_folder  # noqa: E402  (the Windows fonts: MCM2_FONTS, tools/paths.py)
+
+SYMBOLS = find_folder(FONTS, "seguisym.ttf")
 
 W, H = 2560, 1440
 LEFT, RIGHT = 96, 2464

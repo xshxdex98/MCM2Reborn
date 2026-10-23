@@ -233,16 +233,17 @@ static void test_focus_mark(void) {
     puts("PASS focus mark only under controls without their own focus picture, and only for the pad");
 }
 #define MENU_MOVIE 0x7F58
+static int video_paused, mpeg_paused;
+void video_pause(void* movie,BOOL paused) { (void)movie; mpeg_paused+=(int)paused; }
 #include "movie_under_test.inc"
-static int video_paused;
 static int __fastcall pause_video(void* self,void* unused,DWORD paused) { video_paused+=(int)paused; return 1; }
 static void test_movie(void)
 {
     BYTE dialog[0x8000]={0},movie[0x200]={0},video[4]={0}; void* table[17]={0};
-    menu_movie_pause(dialog,1); FIELD(dialog,MENU_MOVIE,BYTE*)=movie;
-    menu_movie_pause(dialog,1); table[16]=(void*)pause_video; *(void***)video=table;
+    menu_movie_pause(dialog,1); CHECK(!mpeg_paused); FIELD(dialog,MENU_MOVIE,BYTE*)=movie;
+    menu_movie_pause(dialog,1); CHECK(mpeg_paused==1); table[16]=(void*)pause_video; *(void***)video=table;
     FIELD(movie,0x1EC,void*)=video; menu_movie_pause(dialog,1); CHECK(video_paused==1);
-    puts("PASS missing movie, missing decoder and valid menu preview video");
+    puts("PASS missing movie, missing decoder, the MPEG-1 copy and valid menu preview video");
 }
 static void test_menu(void)
 {

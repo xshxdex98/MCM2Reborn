@@ -23,45 +23,62 @@
 # no function covers - and takes coverage from 91.59% to 98.54%, 4,170 functions to 5,658. A
 # database without that pass is a different database, so the pass belongs here.
 #
-# The scripts in tools/ghidra are the master copies; they are copied to C:/mcm2ghidra/scripts first,
+# The scripts in tools/ghidra are the master copies; they are copied to $MCM2_WORK/scripts first,
 # because analyzeHeadless.bat splits its arguments on spaces and this tree's path has one.
+#
+# The retail executable goes in $MCM2_WORK/bin/Mcm2.exe first (its sha256 is in docs/binary.md).
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
-GH="${GHIDRA_HEADLESS:-$GHIDRA_INSTALL_DIR/support/analyzeHeadless.bat}"
-[ -f "$GH" ] || { echo "set GHIDRA_INSTALL_DIR to a Ghidra 12.1 install, or GHIDRA_HEADLESS to its analyzeHeadless.bat"; exit 1; }
-PROJ=C:/mcm2ghidra/proj
-SCRIPTS=C:/mcm2ghidra/scripts
-OUT=C:/mcm2ghidra/out
+. "$HERE/env.sh"
+PROJ=$WORK/proj
+SCRIPTS=$WORK/scripts
+OUT=$WORK/out
+[ -f "$WORK/bin/Mcm2.exe" ] || { echo "no $WORK/bin/Mcm2.exe - put the retail executable there"; exit 1; }
 
-mkdir -p /c/mcm2ghidra/scripts /c/mcm2ghidra/out
-cp "$HERE"/*.java /c/mcm2ghidra/scripts/
+mkdir -p "$SCRIPTS" "$OUT"
+cp "$HERE"/*.java "$SCRIPTS/"
 
-if [ -d /c/mcm2ghidra/proj.old ]; then rm -rf /c/mcm2ghidra/proj.old; fi
-if [ -d /c/mcm2ghidra/proj ]; then mv /c/mcm2ghidra/proj /c/mcm2ghidra/proj.old; fi
-mkdir -p /c/mcm2ghidra/proj
+# The names of the functions Mcm2.exe imports by ordinal alone (WSOCK32's, DSOUND's, DPLAYX's).
+# On Windows Ghidra reads them out of the system's own DLLs; elsewhere there are none, every one of
+# them would be Ordinal_<n>, and two DLLs' Ordinal_4 would collide in game.asm. symbols/win32 has
+# them (from Wine's .spec files, which keep Windows' ordinals), put where Ghidra looks for its own.
+if [ -z "$WINDOWS" ]; then
+    SYMBOLS="$(dirname "$(dirname "$GH")")/Ghidra/Features/Base/data/symbols/win32"
+    for f in "$HERE"/symbols/win32/*.exports; do
+        [ -f "$SYMBOLS/$(basename "$f")" ] || cp "$f" "$SYMBOLS/" \
+            || { echo "could not copy $f into $SYMBOLS"; exit 1; }
+    done
+fi
 
-echo "=== 1/4 importing and analysing Mcm2.exe ==="
-"$GH" "$PROJ" MCM2 -import C:/mcm2ghidra/bin/Mcm2.exe 2>&1 \
+if [ -d "$WORK/proj.old" ]; then rm -rf "$WORK/proj.old"; fi
+if [ -d "$WORK/proj" ]; then mv "$WORK/proj" "$WORK/proj.old"; fi
+mkdir -p "$WORK/proj"
+
+echo "=== 1/5 importing and analysing Mcm2.exe ==="
+"$GH" "$PROJ" MCM2 -import "$WORK/bin/Mcm2.exe" 2>&1 \
     | grep -iE "ERROR|Exception|Analysis succeeded|Import succeeded" | tail -10
 
-echo "=== 2/4 census before recovery ==="
+echo "=== 2/5 census before recovery ==="
 "$GH" "$PROJ" MCM2 -process Mcm2.exe -noanalysis -scriptPath "$SCRIPTS" \
     -postScript Census.java "$OUT" >/dev/null 2>&1
 cp "$OUT/census.txt" "$OUT/census_before.txt"
 grep -E "^functions|covered by funcs|NOT covered" "$OUT/census_before.txt"
 
-echo "=== 3/4 recovering the frame-pointer-omitted functions ==="
+echo "=== 3/5 recovering the frame-pointer-omitted functions ==="
 "$GH" "$PROJ" MCM2 -process Mcm2.exe -noanalysis -scriptPath "$SCRIPTS" \
     -postScript FindFuncs.java "$OUT" apply >/dev/null 2>&1
 grep -E "^tier |^absorbed|^skipped|^refused" "$OUT/findfuncs_applied.txt"
 
-echo "=== 4/4 census after recovery ==="
+echo "=== 4/5 census after recovery ==="
 "$GH" "$PROJ" MCM2 -process Mcm2.exe -noanalysis -scriptPath "$SCRIPTS" \
     -postScript Census.java "$OUT" >/dev/null 2>&1
 grep -E "^functions|covered by funcs|NOT covered" "$OUT/census.txt"
 
+# The classes' virtual functions named from the RTTI (vf_<slot> in each class): ~10 minutes, and no
+# listing changes, but the C binds to those names (game_vf_10_46A300), so a database without them
+# exports an assembly the build cannot link against.
+echo "=== 5/5 naming the virtual functions from the RTTI ==="
+"$GH" "$PROJ" MCM2 -process Mcm2.exe -noanalysis -scriptPath "$SCRIPTS" \
+    -postScript RttiMcm2.java "$OUT" 2>&1 | grep -E "RttiMcm2.java> (WROTE|STATS)|ERROR|Exception" || true
+
 echo "=== import done ==="
-echo "RTTI is NOT run here - it takes ~10 minutes and changes no listings."
-echo "Run it separately when class names are wanted:"
-echo "  \"\$GH\" $PROJ MCM2 -process Mcm2.exe -noanalysis -scriptPath $SCRIPTS \\"
-echo "      -postScript RttiMcm2.java $OUT"

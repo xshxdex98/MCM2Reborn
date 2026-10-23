@@ -26,7 +26,6 @@ Usage:
     py tools/verify_encodings.py --json out.json # also write the verdict per encoding
 """
 import collections
-import glob
 import json
 import os
 import re
@@ -34,9 +33,11 @@ import struct
 import subprocess
 import sys
 
+import toolchain
+from paths import ASM
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-ASM = os.path.join(os.environ.get("MCM2_ASM_DIR", r"C:\mcm2ghidra\out"), "game.asm")
 
 # Relative branches encode a displacement to a target that does not exist in a standalone test, so
 # they cannot be round-tripped this way. They are also the one class the exporter already gets
@@ -165,11 +166,7 @@ def to_masm(mnemonic, operands):
 
 
 def find_ml():
-    hits = sorted(glob.glob(r"C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC"
-                            r"\*\bin\Hostx64\x86\ml.exe"))
-    if not hits:
-        sys.exit("could not find ml.exe")
-    return hits[-1]
+    return toolchain.command("ml")
 
 
 def object_text(path):
@@ -233,7 +230,7 @@ def main():
                                  else "db " + ",".join("0%02Xh" % x for x in c["b"])))
         src += ["ALIGN 16", "END"]
         open(asm_path, "w").write("\n".join(src) + "\n")
-        r = subprocess.run([ml, "-c", "-coff", "-Fo" + obj_path, asm_path],
+        r = subprocess.run(ml + ["-c", "-coff", "-Fo" + toolchain.native(obj_path), toolchain.native(asm_path)],
                            cwd=out, capture_output=True, text=True)
         errs = re.findall(r"encodings\.asm\((\d+)\)\s*:\s*error", r.stdout + r.stderr)
         hit = [line_of[int(e)] for e in errs if int(e) in line_of]

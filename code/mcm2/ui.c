@@ -7815,11 +7815,17 @@ void __fastcall combo_picture_destruct(BYTE* self)
     picture_control_destruct(self);
 }
 
-/* Also the slot 0 of other UIPicture kinds, which destroy no more than it. */
+#define UIMOVIE_VTABLE ((void**) 0x00558C18)
+
+/* Also the slot 0 of other UIPicture kinds, which destroy no more than it - UIMovie's among them. */
 PORT(0x0047BDB0)
 BYTE* __fastcall combo_picture_delete(BYTE* self, void* edx_unused, BYTE flags)
 {
     (void) edx_unused;
+#ifdef OPENMCM2_DEV
+    if (*(void***) self == UIMOVIE_VTABLE)
+        video_close(self);          /* the movie video.c plays goes with its control */
+#endif
     combo_picture_destruct(self);
     if (flags & 1)
         game_delete(self);
@@ -8294,9 +8300,9 @@ int __fastcall combo_pressed(BYTE* self, void* edx_unused, DWORD button, DWORD b
 /*
     The movie is a 0x80-byte stream object (a DirectShow multimedia stream drawing to a
     DirectDraw surface, 0x2C) made a child of the control; MOVIE_SOURCE is the part of its
-    surface shown.
+    surface shown. The dev build never makes one: video.c plays the launcher's MPEG-1 copy of
+    the movie instead, and MOVIE_STREAM stays NULL.
 */
-#define UIMOVIE_VTABLE ((void**) 0x00558C18)
 #define MOVIE_STREAM   0x1EC
 #define MOVIE_SOURCE   0x1F0       /* RECT */
 
@@ -8328,11 +8334,23 @@ PORT(0x0047BDD0)
 BOOL __fastcall movie_open(BYTE* self, void* edx_unused, const char* file, BOOL play, DWORD a,
                            DWORD b)
 {
+#ifndef OPENMCM2_DEV
     BYTE* stream;
+#endif
 
     (void) edx_unused;
     if (FIELD(self, MOVIE_STREAM, BYTE*))
         object_destroy(FIELD(self, MOVIE_STREAM, BYTE*));
+#ifdef OPENMCM2_DEV
+    /* Never the original (Indeo 5): the launcher's MPEG-1 copy of it, played by video.c, or none. */
+    FIELD(self, MOVIE_STREAM, BYTE*) = NULL;
+    if (!video_open(self, file, play, a, b))
+        return FALSE;
+    FIELD(self, MOVIE_SOURCE, RECT).left = 0;
+    FIELD(self, MOVIE_SOURCE, RECT).top = 0;
+    video_size(self, &FIELD(self, MOVIE_SOURCE, RECT).right, &FIELD(self, MOVIE_SOURCE, RECT).bottom);
+    return TRUE;
+#else
     stream = game_new(0x80, GAMEUI_CPP, 0x264D);
     if (stream)
         stream = stream_construct(stream, NULL, 1);
@@ -8350,6 +8368,7 @@ BOOL __fastcall movie_open(BYTE* self, void* edx_unused, const char* file, BOOL 
     if (play)
         stream_play(stream);
     return TRUE;
+#endif
 }
 
 /* Vtable slot 10: tick, as a control does. */
@@ -8357,6 +8376,9 @@ PORT(0x0047BED0)
 int __fastcall movie_tick(BYTE* self, void* edx_unused, DWORD time)
 {
     (void) edx_unused;
+#ifdef OPENMCM2_DEV
+    video_tick(self);
+#endif
     return control_tick(self, NULL, time);
 }
 
@@ -8370,10 +8392,18 @@ BOOL __fastcall movie_render(BYTE* self)
 {
     BYTE* background;
     void* back;
+    void* frame;
     RECT area;
 
+#ifdef OPENMCM2_DEV
+    frame = video_picture(self);
+    if (!frame)
+        return FALSE;
+#else
     if (!FIELD(self, MOVIE_STREAM, BYTE*))
         return FALSE;
+    frame = FIELD(FIELD(self, MOVIE_STREAM, BYTE*), 0x2C, void*);
+#endif
     background = FIELD(FIELD(self, CTL_DIALOG, BYTE*), DLG_BACKGROUND, BYTE*);
     if (background) {
         background_release_dc(background);
@@ -8381,9 +8411,8 @@ BOOL __fastcall movie_render(BYTE* self)
     }
     VIRTUAL(self, 0xFC, control_area)(self, NULL, &FIELD(self, CTL_RECT, RECT), &area);
     back = FIELD(object_screen(self), 0x48, void*);
-    return VIRTUAL(back, 0x14, surface_blt)(back, &area, FIELD(FIELD(self, MOVIE_STREAM, BYTE*),
-                                                               0x2C, void*),
-                                            &FIELD(self, MOVIE_SOURCE, RECT), BLT_WAIT, NULL) == 0;
+    return VIRTUAL(back, 0x14, surface_blt)(back, &area, frame, &FIELD(self, MOVIE_SOURCE, RECT),
+                                            BLT_WAIT, NULL) == 0;
 }
 
 /* ---- UIProgress: a bar that fills as steps are done ------------------------------------------ */

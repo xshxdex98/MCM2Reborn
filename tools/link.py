@@ -17,7 +17,9 @@ No import libraries are linked. Retail's import table is part of the .rdata the 
 and every import is called through its slot there, so the linker has nothing to import and builds
 no table of its own. That keeps .text, .rdata and .data at their retail sizes and addresses, so
 every pointer in the data is right as it stands. The PE header is then pointed at retail's import
-tables (adopt_retail_header), and the build is refused if any of those sections has moved.
+tables (adopt_retail_header), and the build is refused if any of those sections has moved. The one
+difference is a DLL whose every import is ported (DROPPED_DLLS): the loader is given retail's
+descriptors less that one, so it need not be installed.
 
 Sections of our own (compiled code, see build/obj) land after .data, and .rsrc after them: it is
 built by the linker from build/game.res (tools/resources.py), which keeps its RVAs right wherever
@@ -50,13 +52,12 @@ import subprocess
 import sys
 
 import coff
-from paths import RETAIL
+import toolchain
+from paths import ASM, OBJ, RETAIL
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
-OBJ = os.environ.get("MCM2_OBJ", r"C:\mcm2ghidra\out\game.obj")
-ASM = os.environ.get("MCM2_ASM", r"C:\mcm2ghidra\out\game.asm")
 OUT = os.path.join(ROOT, "build", "OpenMCM2.exe")
 
 IMAGE_BASE = "0x400000"
@@ -78,18 +79,20 @@ FIXED_SECTIONS = (".text", ".rdata", ".data")
 # The data directories taken from retail: their tables are emitted verbatim at retail addresses.
 DIR_IMPORT, DIR_IAT = 1, 12
 
+# DLLs the game imports from but no longer calls: every function it takes from them is ported, so
+# they are left out of the import directory the loader reads and need not exist. d3drm.dll, for
+# D3DRMVectorRotate alone (code/mcm2/d3drm.c): Windows has not shipped it since XP. That directory
+# is retail's descriptors less those, in room the C keeps (IMPORT_ROOM); retail's own table stays
+# in .rdata as it is, and the IAT directory is still retail's.
+DROPPED_DLLS = ("d3drm.dll",)
+IMPORT_ROOM = "_import_directory"
+MAP = os.path.join(ROOT, "build", "OpenMCM2.map")
+
 # The OS and subsystem versions (four words at optional header +40 and +48). Windows only
 # virtualises the registry for an executable that declares a pre-Vista version, and the game keeps
 # its settings, its EULA acceptance and its profiles under HKLM: declaring the linker's 6.0 makes
 # every one of those writes fail, so it asks again on every launch.
 VERSIONS = ((40, 4), (48, 4))
-
-
-def find(pattern, what):
-    hits = sorted(glob.glob(pattern))
-    if not hits:
-        sys.exit("could not find %s (looked for %s)" % (what, pattern))
-    return hits[-1]
 
 
 def cpp_objects():
@@ -206,8 +209,111 @@ def pe_layout(data):
     return pe + 24 + 96, sections
 
 
-def adopt_retail_header(path):
-    """Point the built image at retail's import and IAT tables, and declare retail's versions.
+def file_offset(data, rva):
+    """Where the byte at `rva` is in the file, or None if no section's raw data holds it."""
+    pe = struct.unpack_from("<I", data, 0x3C)[0]
+    count, = struct.unpack_from("<H", data, pe + 6)
+    opt_size, = struct.unpack_from("<H", data, pe + 20)
+    for i in range(count):
+        va, raw_size, raw = struct.unpack_from("<12xIII", data, pe + 24 + opt_size + 40 * i)
+        if va <= rva < va + raw_size:
+            return rva - va + raw
+    return None
+
+
+def c_string(data, rva):
+    at = file_offset(data, rva)
+    return data[at:data.index(b"\0", at)].decode("latin-1")
+
+
+def import_descriptors(image):
+    """[(DLL name, its 20-byte descriptor, the names it imports - None for an ordinal)]."""
+    dirs, _ = pe_layout(image)
+    rva, = struct.unpack_from("<I", image, dirs + 8 * DIR_IMPORT)
+    at, found = file_offset(image, rva), []
+    while True:
+        entry = image[at:at + 20]
+        lookup, _, _, name, slots = struct.unpack("<5I", entry)
+        if name == 0:
+            return found
+        names, n = [], file_offset(image, lookup or slots)
+        while True:
+            thunk, = struct.unpack_from("<I", image, n)
+            if thunk == 0:
+                break
+            names.append(None if thunk & 0x80000000 else c_string(image, thunk + 2))
+            n += 4
+        found.append((c_string(image, name), entry, names))
+        at += 20
+
+
+def check_dropped(dll, names, objects):
+    """Refuse the build if anything could still call through `dll`'s import slots."""
+    ported = ported_names()
+    for name in names:
+        if name is None or name not in ported:
+            sys.exit("%s is left out of the import directory, but its %s is not ported"
+                     % (dll, name or "import by ordinal"))
+        slot = re.compile(r"(?<![\w?@$])__imp__%s(?![\w?@$])" % re.escape(name))
+        proc = None
+        with open(ASM, encoding="utf-8", errors="replace") as f:
+            for n, line in enumerate(f, 1):
+                words = line.split()
+                if len(words) >= 2 and words[1] in ("PROC", "ENDP"):
+                    proc = words[0] if words[1] == "PROC" else None
+                elif slot.search(line) and not line.startswith(("PUBLIC ", "__imp__")) \
+                        and not (proc or "").startswith("orig_"):
+                    sys.exit("%s is left out of the import directory, but %s line %d still calls "
+                             "through its %s slot" % (dll, ASM, n, name))
+        for path in objects:
+            with open(path, "rb") as f:
+                for symbol, section, _ in coff.symbols(f.read()):
+                    if section == 0 and re.match(r"^__imp__%s@\d+$" % re.escape(name), symbol):
+                        sys.exit("%s is left out of the import directory, but %s imports %s from it"
+                                 % (dll, os.path.basename(path), name))
+
+
+def import_room():
+    """(RVA, size) of the room the C keeps for the import directory, from the map: up to the next
+    symbol, so never more than it has."""
+    addresses = []
+    room = None
+    with open(MAP, encoding="latin-1") as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) >= 3 and re.match(r"^[0-9a-f]{4}:[0-9a-f]{8}$", parts[0]) \
+                    and re.match(r"^[0-9a-f]{8}$", parts[2]):
+                address = int(parts[2], 16)
+                addresses.append(address)
+                if parts[1] == IMPORT_ROOM:
+                    room = address
+    if room is None:
+        sys.exit("no %s in the map: code/mcm2/d3drm.c keeps the import directory's room" % IMPORT_ROOM)
+    following = [a for a in addresses if a > room]
+    return room - int(IMAGE_BASE, 16), (min(following) - room) if following else 0
+
+
+def write_import_directory(built, retail, objects):
+    """The loader's import directory: retail's descriptors less DROPPED_DLLS, in the C's room."""
+    kept = []
+    for dll, entry, names in import_descriptors(retail):
+        if dll.lower() in DROPPED_DLLS:
+            check_dropped(dll, names, objects)
+        else:
+            kept.append(entry)
+    table = b"".join(kept) + bytes(20)
+    rva, room = import_room()
+    at = file_offset(built, rva)
+    if at is None or len(table) > room:
+        sys.exit("the import directory needs %d bytes, and %s has %d in the file - make it larger"
+                 % (len(table), IMPORT_ROOM, room if at is not None else 0))
+    built[at:at + len(table)] = table
+    return struct.pack("<II", rva, len(table))
+
+
+def adopt_retail_header(path, objects):
+    """Point the built image at retail's import and IAT tables (the import directory less
+    DROPPED_DLLS), and declare retail's versions.
 
     Those tables, and every pointer in the game's data, are only valid if .text, .rdata and .data
     are at their retail addresses - which is checked first, because a section that moved would
@@ -233,9 +339,10 @@ def adopt_retail_header(path):
         sys.exit(".data is 0x%X bytes against retail's 0x%X: compiled code put something in it - see the map"
                  % (built_sections[".data"][1], retail_sections[".data"][1]))
 
-    for index in (DIR_IMPORT, DIR_IAT):
-        entry = retail_dirs + 8 * index
-        built[built_dirs + 8 * index:built_dirs + 8 * index + 8] = retail[entry:entry + 8]
+    entry = retail_dirs + 8 * DIR_IAT
+    built[built_dirs + 8 * DIR_IAT:built_dirs + 8 * DIR_IAT + 8] = retail[entry:entry + 8]
+    built[built_dirs + 8 * DIR_IMPORT:built_dirs + 8 * DIR_IMPORT + 8] = \
+        write_import_directory(built, retail, objects)
 
     for offset, size in VERSIONS:
         built[built_opt + offset:built_opt + offset + size] = retail[retail_opt + offset:retail_opt + offset + size]
@@ -264,21 +371,15 @@ def main():
     if not os.path.exists(RES):
         sys.exit("no resources at %s - run tools/resources.py first" % RES)
 
-    link = os.environ.get("LINK_EXE") or find(
-        r"C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC"
-        r"\*\bin\Hostx64\x86\link.exe", "link.exe")
-
-    # link.exe sits at <msvc>/bin/Hostx64/x86/link.exe, so the toolchain root is four levels up.
-    msvc_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(link))))
-    msvc_lib = os.path.join(msvc_root, "lib", "x86")
-    ucrt_lib = find(r"C:\Program Files (x86)\Windows Kits\10\Lib\*\ucrt\x86", "the UCRT x86 libraries")
+    link = toolchain.command("link")
+    libs = toolchain.lib_dirs()
 
     objects = cpp_objects()
     entry = "open_start" if defines(objects, "_open_start") else entry_point()
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
 
+    native = toolchain.native
     cmd = [
-        link,
         "-NOLOGO",
         "-MACHINE:X86",
         "-SUBSYSTEM:WINDOWS",
@@ -298,24 +399,27 @@ def main():
 
         # A map, so an address in appended C++ can be named. Without one a crash inside a
         # reimplementation is just a number.
-        "-MAP:" + os.path.join(ROOT, "build", "OpenMCM2.map"),
+        "-MAP:" + native(os.path.join(ROOT, "build", "OpenMCM2.map")),
 
-        "-OUT:" + OUT,
-        "-LIBPATH:" + msvc_lib,
-        "-LIBPATH:" + ucrt_lib,
-        OBJ,
-        RES,
-    ] + objects + bindings(objects)
+        "-OUT:" + native(OUT),
 
-    print("link.exe : %s" % link)
+        # Referenced by nothing but the header write after the link, so kept by name.
+        "-INCLUDE:" + IMPORT_ROOM,
+    ] + ["-LIBPATH:" + lib for lib in libs] + [
+        native(OBJ),
+        native(RES),
+    ] + [native(o) for o in objects] + bindings(objects)
+
+    print("link.exe : %s" % link[-1])
     print("entry    : %s" % entry)
     print("object   : %s (%d bytes)" % (OBJ, os.path.getsize(OBJ)))
     # Every port adds a switch, and the lot outgrows the 32K a command line may be; link.exe
     # reads them from a response file instead, one to a line.
     rsp = os.path.join(ROOT, "build", "link.rsp")
     with open(rsp, "w", encoding="utf-8") as f:
-        f.write("\n".join('"%s"' % arg for arg in cmd[1:]) + "\n")
-    res = subprocess.run([link, "@" + rsp], capture_output=True, text=True)
+        f.write("\n".join('"%s"' % arg for arg in cmd) + "\n")
+    res = subprocess.run(link + ["@" + native(rsp)], env=toolchain.link_environment(), capture_output=True,
+                         text=True)
     out = (res.stdout or "") + (res.stderr or "")
     if res.returncode != 0:
         # Unresolved externals come in thousands when something structural is wrong and in ones
@@ -328,9 +432,9 @@ def main():
         sys.exit(res.returncode)
 
     print(out.strip())
-    adopt_retail_header(OUT)
-    print("\nlinked -> %s (%d bytes), retail import tables and versions adopted"
-          % (OUT, os.path.getsize(OUT)))
+    adopt_retail_header(OUT, objects)
+    print("\nlinked -> %s (%d bytes), retail import tables and versions adopted, without %s"
+          % (OUT, os.path.getsize(OUT), ", ".join(DROPPED_DLLS)))
 
 
 if __name__ == "__main__":

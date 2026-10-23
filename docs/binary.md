@@ -108,9 +108,16 @@ the modern SDK, and `blade.dll` is the game's own - but none is needed any more.
 no import libraries at all and uses retail's import table as it stands (see
 [`harness.md`](harness.md)), which carries every one of these correctly already.
 
-`d3drm.dll` is Direct3D Retained Mode, and `DDraw.dll` / `D3DImm.dll` / `d3drm.dll` in the install
-folder are dgVoodoo wrappers, not the Microsoft originals. Retail runs on them; OpenMCM2 does not
-load them, since its own renderer answers `DirectDrawCreateEx`.
+`DDraw.dll` and `D3DImm.dll` in the install folder are dgVoodoo wrappers, not the Microsoft
+originals. Retail runs on them; OpenMCM2 does not load them, since its own renderer answers
+`DirectDrawCreateEx`.
+
+`d3drm.dll` is Direct3D Retained Mode, and the game takes one function from it,
+`D3DRMVectorRotate`. Windows has not shipped it since XP, and the CD keeps it in its root, outside
+the `GAME` folder an install is copied from, so a copy made from the CD has none, and Windows will
+not start an executable that imports a DLL it cannot find. The function is ported
+(`code/mcm2/d3drm.c`, within 6e-7 of the CD's DLL), and `tools/link.py` leaves `d3drm.dll` out of
+the import directory the loader reads. Retail's import table in `.rdata` is unchanged.
 
 ## Toolchain present on this machine
 

@@ -12,11 +12,11 @@ straight after .text, and zero-filled data before .rdata, moving every section t
 """
 import glob
 import os
-import shutil
 import subprocess
 import sys
 
 import coff
+import toolchain
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -39,13 +39,8 @@ UNSUPPORTED = (".CRT", ".tls")
 
 
 def msvc_environment():
-    """The environment vcvarsall sets up for 32-bit builds."""
-    vswhere = os.path.join(os.environ["ProgramFiles(x86)"], "Microsoft Visual Studio", "Installer", "vswhere.exe")
-    vs = subprocess.run([vswhere, "-latest", "-property", "installationPath"],
-                        capture_output=True, text=True, check=True).stdout.strip()
-    vcvars = os.path.join(vs, "VC", "Auxiliary", "Build", "vcvarsall.bat")
-    out = subprocess.run('"%s" x86 >nul && set' % vcvars, shell=True, capture_output=True, text=True, check=True).stdout
-    return dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+    """The environment cl runs in for 32-bit builds (tools/toolchain.py)."""
+    return toolchain.environment("x86")
 
 
 def rename(name):
@@ -65,8 +60,10 @@ def main():
         return
 
     env = msvc_environment()
-    cl = shutil.which("cl", path=env.get("Path") or env.get("PATH"))
-    res = subprocess.run([cl] + FLAGS + ["/Fo" + OBJ + "\\"] + sources, env=env, cwd=SRC,
+    cl = toolchain.command("cl", "x86", env)
+    flags = [f if not f.startswith("/I") else "/I" + toolchain.native(f[2:]) for f in FLAGS]
+    res = subprocess.run(cl + flags + ["/Fo" + toolchain.native(OBJ) + "\\"]
+                         + [toolchain.native(s) for s in sources], env=env, cwd=SRC,
                          capture_output=True, text=True)
     print((res.stdout + res.stderr).strip())
     if res.returncode != 0:

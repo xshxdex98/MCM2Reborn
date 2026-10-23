@@ -16,10 +16,10 @@ import sys
 
 import capstone
 
-from paths import RETAIL
+from paths import ASM as EXPORTED, RETAIL
 
 ROOT = __file__.rsplit("tools", 1)[0]
-ASM = r"C:\mcm2ghidra\out\game.asm.pristine"
+ASM = EXPORTED + ".pristine"
 DECLARATION = re.compile(
     r"\b(__fastcall|__stdcall)\s*\**\s*game_(\w+)\s*\(([^;{]*?)\)\s*;", re.S)
 
